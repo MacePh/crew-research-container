@@ -1,0 +1,53 @@
+---
+research_topic_task:
+  description: 'Conduct thorough research to understand how AI agents can be utilized
+    for the user''s goal: {user_goal}. Focus on gathering relevant information without
+    redundancy and ensure a comprehensive understanding of the topic.'
+  expected_output: 'A detailed report on how AI agents can be applied to achieve the
+    user''s goal: {user_goal}. The report should include key insights and practical
+    applications.'
+  async_execution: false
+  agent: research_specialist
+search_github_task:
+  description: 'Search GitHub for open-source projects that align with the user''s
+    goal: {user_goal}. Use specific queries to find relevant repositories and examples.
+    If the previous research task did not complete, independently search for relevant repositories.'
+  expected_output: 'A compiled list of relevant GitHub repositories and open-source
+    projects that relate to the user''s goal: {user_goal}. Include links and brief
+    descriptions of each project.'
+  async_execution: false
+  agent: github_explorer
+  context:
+  - research_topic_task
+design_flow_task:
+  description: 'Create an example flow for the AI agents based on the research findings.
+    Present the flow in an easily editable format using mermaid syntax. Your diagram MUST
+    use "flowchart TD" syntax and have classDef definitions at the top followed by nodes
+    and connections, with class applications at the end.'
+  expected_output: 'An editable flow diagram in mermaid format that illustrates the
+    roles and interactions of the AI agents designed to achieve the user''s goal:
+    {user_goal}.'
+  agent: flow_designer
+  async_execution: false
+  context:
+  - search_github_task
+create_game_plan_task:
+  description: 'Develop a step-by-step game plan for the user to implement their crew
+    based on the designed flow. If the previous flow design task did not complete, create
+    your own implementation plan based on the user''s goal directly.'
+  expected_output: A detailed step-by-step game plan for implementing the crew, including
+    necessary actions and considerations for the user.
+  async_execution: false
+  agent: implementation_planner
+  context:
+  - design_flow_task
+generate_prompt_task:
+  description: 'Provide a recommended prompt that the user can use to ask Grok 3 for
+    assistance in completing the implementation phase. Even if the previous tasks did not
+    complete successfully, create a prompt based directly on the user''s goal.'
+  expected_output: A clear and effective prompt for the user to communicate their
+    needs to Grok 3 during the implementation phase.
+  async_execution: false
+  agent: prompt_generator
+  context:
+  - create_game_plan_task

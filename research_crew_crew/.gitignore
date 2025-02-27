@@ -1,0 +1,22 @@
+# Ignore environment variables
+.env
+.venv
+
+# Ignore specific project files and directories
+db/
+tree.py
+
+# General Python ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.venv/
+
+# Ignore logs and temp files
+*.log
+*.sqlite3
+*.db
