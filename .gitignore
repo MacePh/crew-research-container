@@ -1,0 +1,34 @@
+# Environment variables
+.env
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Docker volumes
+db/
+reports/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*/node_modules/
+/research_crew_crew
+/api/static
