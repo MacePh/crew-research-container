@@ -17,21 +17,18 @@ RUN python -m pip install --upgrade pip && \
 
 # Copy application code
 COPY . .
-COPY .env .env
 
 # Install the package in development mode
 RUN pip install -e .
 
-# Add the src directory to Python path
-ENV PYTHONPATH="/app/research_crew_crew/src:${PYTHONPATH:-}"
-
-# Create necessary directories with proper permissions
-RUN mkdir -p db reports knowledge
-
-# Set file permissions BEFORE switching to non-root user
-RUN touch .env.example && \
+# Create necessary directories with proper permissions BEFORE switching to non-root user
+RUN mkdir -p db reports knowledge && \
     chmod -R 777 db reports knowledge && \
-    chmod 644 .env*
+    touch .env.example && \
+    chmod 644 .env* 2>/dev/null || true
+
+# Add the src directory to Python path
+ENV PYTHONPATH="/app:/app/research_crew_crew/src:${PYTHONPATH:-}"
 
 # Create a non-root user and switch to it
 RUN useradd -m appuser
@@ -41,6 +38,9 @@ USER appuser
 ENV PYTHONUNBUFFERED=1
 # Default API key (override this in production with secure value)
 ENV API_KEY="dev-api-key"
+ENV SERPER_API_KEY=5132e3092ec60bdb8d754fe19c9fd9dd84497b31
+ENV OPENAI_API_KEY=""
+ENV GITHUB_TOKEN=""
 
 # Load .env file
 RUN echo "if [ -f /app/.env ]; then source /app/.env; fi" >> /home/appuser/.bashrc
