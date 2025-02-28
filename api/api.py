@@ -11,6 +11,8 @@ from research_crew_crew.crew import ResearchCrewCrew
 from fastapi.responses import FileResponse, JSONResponse
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
+import json
+import sqlite3
 
 # Setup Python path to ensure the package can be imported
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -112,6 +114,119 @@ class ReportInfo(BaseModel):
     crew_name: str
     created: str
 
+# Store problematic task IDs
+BLOCKED_TASK_IDS = [
+    "1e471e2b-948c-4695-be24-c63a2e84260d",
+    # Add other known problematic IDs here
+]
+
+# Directory for storing task data
+TASKS_DIR = os.path.join(os.path.dirname(__file__), "..", "tasks")
+os.makedirs(TASKS_DIR, exist_ok=True)
+
+def save_task_to_file(task_id, task_data):
+    """Save task data to a file"""
+    try:
+        file_path = os.path.join(TASKS_DIR, f"{task_id}.json")
+        with open(file_path, 'w') as f:
+            json.dump(task_data, f)
+    except Exception as e:
+        logger.error(f"Error saving task {task_id} to file: {str(e)}")
+
+def load_task_from_file(task_id):
+    """Load task data from a file"""
+    try:
+        file_path = os.path.join(TASKS_DIR, f"{task_id}.json")
+        if not os.path.exists(file_path):
+            return None
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading task {task_id} from file: {str(e)}")
+        return None
+
+# Initialize database
+def init_db():
+    conn = sqlite3.connect('tasks.db')
+    c = conn.cursor()
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        status TEXT,
+        result TEXT,
+        message TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Call this at startup
+init_db()
+
+def save_task_to_db(task_id, task_data):
+    """Save task data to database"""
+    try:
+        conn = sqlite3.connect('tasks.db')
+        c = conn.cursor()
+        
+        # Check if task exists
+        c.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
+        exists = c.fetchone()
+        
+        now = datetime.now().isoformat()
+        
+        if exists:
+            # Update existing task
+            c.execute(
+                "UPDATE tasks SET status = ?, result = ?, message = ?, updated_at = ? WHERE id = ?",
+                (
+                    task_data.get("status"),
+                    task_data.get("result", ""),
+                    task_data.get("message", ""),
+                    now,
+                    task_id
+                )
+            )
+        else:
+            # Insert new task
+            c.execute(
+                "INSERT INTO tasks (id, status, result, message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    task_data.get("status"),
+                    task_data.get("result", ""),
+                    task_data.get("message", ""),
+                    now,
+                    now
+                )
+            )
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error saving task {task_id} to database: {str(e)}")
+
+def load_task_from_db(task_id):
+    """Load task data from database"""
+    try:
+        conn = sqlite3.connect('tasks.db')
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        c.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        row = c.fetchone()
+        
+        conn.close()
+        
+        if row:
+            return dict(row)
+        return None
+    except Exception as e:
+        logger.error(f"Error loading task {task_id} from database: {str(e)}")
+        return None
+
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 def health_check():
@@ -134,6 +249,10 @@ def run_crew_task(task_id: str, crew_name: str, user_goal: str):
             task_results[task_id] = {"status": "error", "message": "OPENAI_API_KEY not configured"}
             return
             
+        # Initialize task result
+        task_results[task_id] = {"status": "processing"}
+        save_task_to_file(task_id, {"status": "processing"})
+        
         # Initialize the crew
         crew = ResearchCrewCrew()
         crew.inputs = {
@@ -144,12 +263,14 @@ def run_crew_task(task_id: str, crew_name: str, user_goal: str):
         # Run the crew
         result = crew.crew().kickoff()
         
-        # Store the result
+        # Update task result
         task_results[task_id] = {"status": "success", "result": str(result)}
+        save_task_to_file(task_id, {"status": "success", "result": str(result)})
         logger.info(f"Task {task_id} completed successfully")
     except Exception as e:
         logger.error(f"Error in task {task_id}: {str(e)}")
         task_results[task_id] = {"status": "error", "message": str(e)}
+        save_task_to_file(task_id, {"status": "error", "message": str(e)})
 
 @app.post("/run-crew/", response_model=CrewResponse, tags=["Crew Operations"])
 async def run_crew(
@@ -162,16 +283,15 @@ async def run_crew(
         import uuid
         task_id = str(uuid.uuid4())
         
-        # Initialize task result
-        task_results[task_id] = {"status": "processing"}
+        # Initialize task result both in memory and file
+        initial_status = {"status": "processing", "message": "Task started"}
+        task_results[task_id] = initial_status
+        save_task_status(task_id, initial_status)
         
         # Run the crew in the background
         background_tasks.add_task(run_crew_task, task_id, request.crew_name, request.user_goal)
         
         return {"status": "processing", "task_id": task_id, "message": "Task started"}
-    except ValueError as e:
-        logger.error(f"Value error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error starting crew task: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -181,10 +301,25 @@ async def get_task_status(
     task_id: str,
     api_key: APIKey = Depends(get_api_key)
 ):
-    if task_id not in task_results:
+    # Check if task is blocked
+    if task_id in BLOCKED_TASK_IDS:
+        return {
+            "status": "blocked",
+            "result": "",
+            "message": "This task ID is blocked due to known issues"
+        }
+    
+    # First check in-memory cache
+    result = task_results.get(task_id)
+    
+    # If not in memory, try to load from file
+    if result is None:
+        result = load_task_status(task_id)
+    
+    # If still not found, return 404
+    if result is None:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    result = task_results[task_id]
     # Ensure the result field is a string (required by the response model)
     if result.get("result") is None and result.get("status") == "error":
         result["result"] = str(result.get("message", "Unknown error"))
@@ -428,6 +563,86 @@ async def get_training_data(crew_name: str, api_key: APIKey = Depends(get_api_ke
         media_type="application/json",
         filename=f"{crew_name}_training_data.json"
     )
+
+@app.get("/task-blocklist", tags=["System"])
+async def get_task_blocklist(api_key: APIKey = Depends(get_api_key)):
+    """Get a list of known problematic task IDs that should not be polled"""
+    return {"blocked_task_ids": BLOCKED_TASK_IDS}
+
+@app.get("/cleanup-tasks", tags=["Maintenance"])
+async def cleanup_old_tasks(days: int = 7, api_key: APIKey = Depends(get_api_key)):
+    """Remove task files older than the specified number of days"""
+    try:
+        import time
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = cutoff_date.timestamp()
+        
+        count = 0
+        for filename in os.listdir(TASKS_DIR):
+            if filename.endswith('.json'):
+                file_path = os.path.join(TASKS_DIR, filename)
+                file_timestamp = os.path.getmtime(file_path)
+                
+                if file_timestamp < cutoff_timestamp:
+                    os.remove(file_path)
+                    count += 1
+        
+        return {"message": f"Removed {count} task files older than {days} days"}
+    except Exception as e:
+        logger.error(f"Error cleaning up tasks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error cleaning up tasks: {str(e)}")
+
+# Add a cleanup function to remove old tasks
+@app.get("/admin/cleanup-tasks", tags=["Admin"])
+async def cleanup_old_tasks(days: int = 7, api_key: APIKey = Depends(get_api_key)):
+    """Remove tasks older than the specified number of days"""
+    try:
+        conn = sqlite3.connect('tasks.db')
+        c = conn.cursor()
+        
+        cutoff_date = (datetime.datetime.now() - datetime.timedelta(days=days)).isoformat()
+        
+        c.execute("DELETE FROM tasks WHERE created_at < ?", (cutoff_date,))
+        deleted_count = c.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        return {"message": f"Deleted {deleted_count} tasks older than {days} days"}
+    except Exception as e:
+        logger.error(f"Error cleaning up old tasks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error cleaning up tasks: {str(e)}")
+
+def save_task_status(task_id, status_data):
+    """Save task status to a JSON file"""
+    try:
+        # Add timestamp to track task age
+        status_data["updated_at"] = datetime.now().isoformat()
+        if "created_at" not in status_data:
+            status_data["created_at"] = status_data["updated_at"]
+            
+        file_path = os.path.join(TASKS_DIR, f"{task_id}.json")
+        with open(file_path, 'w') as f:
+            json.dump(status_data, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving task status: {str(e)}")
+        return False
+
+def load_task_status(task_id):
+    """Load task status from a JSON file"""
+    try:
+        file_path = os.path.join(TASKS_DIR, f"{task_id}.json")
+        if not os.path.exists(file_path):
+            return None
+            
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading task status: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     import uvicorn
