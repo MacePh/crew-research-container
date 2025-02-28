@@ -8,8 +8,8 @@ from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from research_crew_crew.crew import ResearchCrewCrew
-from fastapi.responses import FileResponse
-from typing import List
+from fastapi.responses import FileResponse, JSONResponse
+from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 
 # Setup Python path to ensure the package can be imported
@@ -66,7 +66,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Research Crew API",
-    description="API for running and training research crews. All endpoints require API key authentication via the X-API-Key header.",
+    description="""
+    API for running and training research crews. All endpoints require API key authentication via the X-API-Key header.
+    
+    Reports can be retrieved in either markdown or JSON format by specifying the 'format' parameter.
+    """,
     version="1.0.0",
     docs_url=None,  # Disable the default docs
     redoc_url=None,  # Disable the default redoc
@@ -314,21 +318,100 @@ async def list_reports(api_key: APIKey = Depends(get_api_key)):
         logger.error(f"Error listing reports: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing reports: {str(e)}")
 
-# Endpoint to get a specific report by crew name
-@app.get("/reports/{crew_name}", tags=["Reports"])
-async def get_report(crew_name: str, api_key: APIKey = Depends(get_api_key)):
-    """Get a specific report by crew name"""
-    global REPORTS_DIR
-    file_path = os.path.join(REPORTS_DIR, f"{crew_name}_report.md")
+def parse_markdown_to_json(markdown_text: str) -> Dict[str, Any]:
+    """Convert markdown report to structured JSON format"""
+    sections = {}
+    current_section = "overview"
+    current_subsection = None
+    lines = markdown_text.split("\n")
     
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"Report for crew '{crew_name}' not found")
+    # Initialize with empty content
+    sections["title"] = ""
+    sections["content"] = []
     
-    return FileResponse(
-        file_path, 
-        media_type="text/markdown",
-        filename=f"{crew_name}_report.md"
-    )
+    for line in lines:
+        line = line.rstrip()
+        
+        # Handle title (level 1 heading)
+        if line.startswith("# "):
+            sections["title"] = line[2:].strip()
+        
+        # Handle main sections (level 2 headings)
+        elif line.startswith("## "):
+            current_section = line[3:].strip().lower().replace(" ", "_")
+            current_subsection = None
+            if current_section not in sections:
+                sections[current_section] = []
+        
+        # Handle subsections (level 3 headings)
+        elif line.startswith("### "):
+            if current_section not in sections:
+                sections[current_section] = []
+            
+            subsection_title = line[4:].strip()
+            current_subsection = {"heading": subsection_title, "content": []}
+            sections[current_section].append(current_subsection)
+        
+        # Handle content lines
+        elif line.strip():
+            # If we're in a subsection
+            if current_subsection is not None:
+                current_subsection["content"].append(line.strip())
+            # If we're in a main section but not a subsection
+            elif current_section in sections:
+                # Add directly to the section if it's a list
+                if isinstance(sections[current_section], list):
+                    # Check if the last item is not a subsection dict
+                    if not sections[current_section] or not isinstance(sections[current_section][-1], dict) or "heading" not in sections[current_section][-1]:
+                        sections[current_section].append(line.strip())
+                    # Otherwise create a new entry
+                    else:
+                        sections[current_section].append(line.strip())
+                else:
+                    # Convert to list if it wasn't already
+                    sections[current_section] = [line.strip()]
+            # If we're before any section, add to general content
+            else:
+                sections["content"].append(line.strip())
+    
+    # Clean up empty sections
+    sections = {k: v for k, v in sections.items() if v}
+    
+    return sections
+
+@app.get("/reports/{crew_name}", response_model=Union[str, Dict[str, Any]])
+async def get_report(
+    crew_name: str, 
+    format: str = "markdown", 
+    api_key: APIKey = Depends(get_api_key)
+):
+    """
+    Get a specific research report by crew name.
+    
+    Parameters:
+    - crew_name: Name of the crew/report
+    - format: Response format - "markdown" (default) or "json"
+    
+    Returns:
+    - Markdown string or JSON object based on format parameter
+    """
+    # Fix the file path to use _report.md suffix
+    report_path = os.path.join(REPORTS_DIR, f"{crew_name}_report.md")
+    
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail=f"Report for {crew_name} not found")
+    
+    # Read the report content
+    with open(report_path, "r") as f:
+        report_content = f.read()
+    
+    # Return appropriate format
+    if format.lower() == "json":
+        structured_report = parse_markdown_to_json(report_content)
+        return JSONResponse(content=structured_report)
+    else:
+        # Return original markdown
+        return report_content
 
 # Endpoint to get training data by crew name
 @app.get("/training-data/{crew_name}", tags=["Reports"])
