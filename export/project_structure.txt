@@ -1,0 +1,84 @@
+./
+│   ├── .dockerignore
+│   ├── .env
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── check_env.py
+│   ├── custom_api.py
+│   ├── pyproject.toml
+│   ├── README.md
+│   ├── requirements.txt
+│   ├── run_api.py
+│   ├── run_custom_api.py
+│   ├── tree.sh
+│   api/
+│   │   ├── api.py
+│       static/
+│           node_modules/
+│               autopreview/
+│               │   ├── Autopreview.js
+│               │   ├── index.template.js
+│               │   ├── package.json
+│               │   ├── react.d.ts
+│               │   ├── react.js
+│               │   ├── react18.d.ts
+│               │   ├── react18.js
+│               │   ├── vue2.d.ts
+│               │   ├── vue2.js
+│               │   ├── vue3.d.ts
+│               │   ├── vue3.js
+│   db/
+│   │   ├── chroma.sqlite3
+│       54587c3c-e978-49d2-9bf0-9f2a0cf0b79e/
+│       │   ├── data_level0.bin
+│       │   ├── header.bin
+│       │   ├── length.bin
+│       │   ├── link_lists.bin
+│   docker/
+│   │   ├── Dockerfile
+│   reports/
+│   │   ├── test_report.md
+│   research_crew_crew/
+│   │   ├── .env
+│   │   ├── .gitignore
+│   │   ├── 0.86.0
+│   │   ├── pip
+│   │   ├── pyproject.toml
+│   │   ├── README.md
+│   │   ├── report.md
+│   │   ├── requirements.txt
+│   │   ├── uv.lock
+│   │   ├── __init__.py
+│   │   db/
+│   │   │   ├── chroma.sqlite3
+│   │       20065b1c-2db6-411c-997d-4beeeaa5c5eb/
+│   │       │   ├── data_level0.bin
+│   │       │   ├── header.bin
+│   │       │   ├── index_metadata.pickle
+│   │       │   ├── length.bin
+│   │       │   ├── link_lists.bin
+│   │   knowledge/
+│   │   │   ├── user_preference.txt
+│   │   src/
+│   │   │   ├── __init__.py
+│   │       research_crew_crew/
+│   │       │   ├── crew.py
+│   │       │   ├── main.py
+│   │       │   ├── requirements.txt
+│   │       │   ├── __init__.py
+│   │       │   config/
+│   │       │   │   ├── agents.yaml
+│   │       │   │   ├── tasks.yaml
+│   │           tools/
+│   │           │   ├── custom_tool.py
+│   │           │   ├── __init__.py
+│       tests/
+    scripts/
+    │   ├── check_env.py
+    │   ├── check_paths.py
+    │   ├── deploy.sh
+    │   ├── deploydroplet.sh
+    │   ├── run_crew.py
+    │   ├── test_reports.py
+    │   ├── tree.sh
+    │   ├── __init__.py

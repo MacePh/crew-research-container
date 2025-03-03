@@ -7,7 +7,6 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from research_crew_crew.crew import ResearchCrewCrew
 from fastapi.responses import FileResponse, JSONResponse
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
@@ -19,6 +18,32 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 workspace_root = os.path.abspath(os.path.join(current_dir, ".."))
 if workspace_root not in sys.path:
     sys.path.insert(0, workspace_root)
+
+# Add the research_crew_crew source directory to the Python path
+research_crew_src = os.path.join(workspace_root, "research_crew_crew", "src")
+if os.path.exists(research_crew_src) and research_crew_src not in sys.path:
+    sys.path.insert(0, research_crew_src)
+
+# Try to import ResearchCrewCrew from different possible locations
+try:
+    from research_crew_crew.crew import ResearchCrewCrew
+except ImportError:
+    try:
+        from research_crew_crew.src.research_crew_crew.crew import ResearchCrewCrew
+    except ImportError:
+        # Last resort: try to import directly from the file
+        import importlib.util
+        crew_path = os.path.join(workspace_root, "research_crew_crew", "src", "research_crew_crew", "crew.py")
+        if not os.path.exists(crew_path):
+            crew_path = os.path.join(workspace_root, "research_crew_crew", "crew.py")
+        
+        if os.path.exists(crew_path):
+            spec = importlib.util.spec_from_file_location("crew", crew_path)
+            crew_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(crew_module)
+            ResearchCrewCrew = crew_module.ResearchCrewCrew
+        else:
+            raise ImportError("Could not find the crew module")
 
 # Create reports directory if it doesn't exist
 # Check for Docker environment first, then try relative paths

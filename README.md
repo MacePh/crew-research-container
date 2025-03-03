@@ -21,6 +21,8 @@ The crew consists of:
 - 🔌 **API Interface**: RESTful API for easy integration with other systems
 - 📊 **Report Generation**: Automatically compiles findings into a markdown report
 - 🧠 **Training Support**: Train your crew for specific research domains
+- 🔍 **Vector Search**: Store reports with vector embeddings for semantic search (via Supabase)
+- 💬 **RAG Capabilities**: Ask questions about your research reports and get AI-generated answers
 
 ## Setup Instructions
 
@@ -31,6 +33,7 @@ The crew consists of:
 - OpenAI API key
 - Serper API key (for web search)
 - GitHub API token (for searching GitHub)
+- Supabase account (for vector storage and RAG functionality)
 
 ### Environment Variables
 
@@ -41,6 +44,8 @@ OPENAI_API_KEY=your_openai_api_key
 SERPER_API_KEY=your_serper_api_key
 GITHUB_TOKEN=your_github_token
 API_KEY=your_api_security_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
 ```
 
 ### Local Setup
@@ -54,6 +59,10 @@ API_KEY=your_api_security_key
 4. Install the package in development mode:
    ```bash
    pip install -e .
+   ```
+5. Run the API server:
+   ```bash
+   python start_api.py
    ```
 
 ### Docker Setup
@@ -70,7 +79,34 @@ For containerized deployment (recommended):
    bash scripts/deploy.sh restart
    ```
 
+### Supabase Setup
+
+For vector storage and RAG functionality:
+
+1. Create a Supabase account at [supabase.com](https://supabase.com)
+2. Run the setup script:
+   ```bash
+   python scripts/setup_supabase.py
+   ```
+3. Follow the prompts to create a new project and set up the database schema
+
 ## Usage
+
+### Running the API
+
+The simplest way to run the API is using the provided script:
+
+```bash
+# Activate your virtual environment first
+source .venv/bin/activate  # On Linux/Mac
+# OR
+.venv\Scripts\activate     # On Windows
+
+# Then run the API
+python start_api.py
+```
+
+The API will be available at `http://localhost:8000` with Swagger documentation at `http://localhost:8000/docs`.
 
 ### API Endpoints
 
@@ -99,6 +135,32 @@ curl -X GET http://localhost:8000/reports/ \
 #### Get a Specific Report
 ```bash
 curl -X GET http://localhost:8000/reports/{crew_name} \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+### RAG Endpoints
+
+Once deployed with Supabase integration, additional RAG endpoints are available:
+
+#### Search Reports
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "machine learning algorithms", "limit": 5}'
+```
+
+#### Ask Questions About Reports
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the key findings about quantum computing?"}'
+```
+
+#### Generate Report Summary
+```bash
+curl -X GET http://localhost:8000/summary/quantum_research \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
