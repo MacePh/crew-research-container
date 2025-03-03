@@ -13,6 +13,15 @@ if __name__ == "__main__":
             print("\n⚠️ Supabase connection not available.")
             print("To set up Supabase integration, run:")
             print("python scripts/setup_supabase.py")
+        else:
+            print("\n✅ Supabase connection is active.")
+            
+            # Check if RAG engine is available
+            try:
+                from db.rag import rag_engine
+                print("✅ RAG functionality is available")
+            except ImportError:
+                print("⚠️ RAG engine not available. RAG functionality will be disabled.")
     except ImportError:
         print("\n⚠️ Supabase modules not found.")
         print("To set up Supabase integration, run:")

@@ -37,6 +37,13 @@ try:
     from db.supabase import report_storage
     if report_storage.is_connected():
         print("✅ Supabase integration is available")
+        
+        # Check if RAG engine is available
+        try:
+            from db.rag import rag_engine
+            print("✅ RAG functionality is available")
+        except ImportError:
+            print("⚠️ RAG engine not available. RAG functionality will be disabled.")
     else:
         print("⚠️ Supabase connection not available. Using file-based storage.")
 except ImportError:

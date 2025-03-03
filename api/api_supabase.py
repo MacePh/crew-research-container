@@ -24,35 +24,52 @@ research_crew_src = os.path.join(workspace_root, "research_crew_crew", "src")
 if os.path.exists(research_crew_src) and research_crew_src not in sys.path:
     sys.path.insert(0, research_crew_src)
 
-# Try to import ResearchCrewCrew from different possible locations
+# Add the research_crew_crew/src/research_crew_crew directory to the Python path
+crew_module_dir = os.path.join(research_crew_src, "research_crew_crew")
+if os.path.exists(crew_module_dir) and crew_module_dir not in sys.path:
+    sys.path.insert(0, crew_module_dir)
+
+# Try to import ResearchCrewCrew
 try:
+    print("Attempting to import ResearchCrewCrew...")
     from research_crew_crew.crew import ResearchCrewCrew
+    print("Successfully imported ResearchCrewCrew from research_crew_crew.crew")
 except ImportError:
     try:
+        print("Attempting to import from research_crew_crew.src.research_crew_crew.crew...")
         from research_crew_crew.src.research_crew_crew.crew import ResearchCrewCrew
+        print("Successfully imported ResearchCrewCrew from research_crew_crew.src.research_crew_crew.crew")
     except ImportError:
-        # Last resort: try to import directly from the file
-        import importlib.util
-        crew_path = os.path.join(workspace_root, "research_crew_crew", "src", "research_crew_crew", "crew.py")
-        if not os.path.exists(crew_path):
-            crew_path = os.path.join(workspace_root, "research_crew_crew", "crew.py")
-        
-        if os.path.exists(crew_path):
-            spec = importlib.util.spec_from_file_location("crew", crew_path)
-            crew_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(crew_module)
-            ResearchCrewCrew = crew_module.ResearchCrewCrew
-        else:
-            raise ImportError("Could not find the crew module")
+        try:
+            print("Attempting to import directly from crew module...")
+            sys.path.append(os.path.join(workspace_root, "research_crew_crew", "src", "research_crew_crew"))
+            from crew import ResearchCrewCrew
+            print("Successfully imported ResearchCrewCrew from crew")
+        except ImportError as e:
+            print(f"Failed to import ResearchCrewCrew: {str(e)}")
+            raise ImportError(f"Could not import ResearchCrewCrew: {str(e)}")
 
 # Import Supabase storage and RAG engine
 try:
     from db.supabase import report_storage
-    from db.rag import rag_engine
-    supabase_available = report_storage.is_connected()
+    supabase_storage_available = report_storage.is_connected()
+    
+    # Only import rag_engine if report_storage is available
+    if supabase_storage_available:
+        try:
+            from db.rag import rag_engine
+            rag_available = True
+        except ImportError:
+            logging.warning("RAG engine not available. RAG functionality will be disabled.")
+            rag_available = False
+    else:
+        rag_available = False
+        
+    supabase_available = supabase_storage_available
 except ImportError:
     logging.warning("Supabase modules not found. Falling back to file-based storage.")
     supabase_available = False
+    rag_available = False
 
 # Create reports directory if it doesn't exist (fallback for when Supabase is not available)
 reports_dirs = [
@@ -228,140 +245,123 @@ def load_task_status(task_id):
         return None
 
 def save_report(crew_name, content, metadata=None):
-    """Save report to storage"""
-    # Try to save to Supabase first
-    if supabase_available:
-        try:
-            success = report_storage.save_report(crew_name, content, metadata)
-            if success:
-                logger.info(f"Report for crew '{crew_name}' saved to Supabase")
-                return True
-        except Exception as e:
-            logger.error(f"Error saving report to Supabase: {str(e)}")
-    
-    # Fallback to file-based storage
+    """Save report to Supabase storage"""
+    if not supabase_available:
+        logger.error("Supabase is not available. Cannot save report.")
+        return False
+        
     try:
-        file_path = os.path.join(REPORTS_DIR, f"{crew_name}_report.md")
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        logger.info(f"Report for crew '{crew_name}' saved to file: {file_path}")
-        return True
+        success = report_storage.save_report(crew_name, content, metadata)
+        if success:
+            logger.info(f"Report for crew '{crew_name}' saved to Supabase")
+            return True
+        else:
+            logger.error(f"Failed to save report for crew '{crew_name}' to Supabase")
+            return False
     except Exception as e:
-        logger.error(f"Error saving report to file: {str(e)}")
+        logger.error(f"Error saving report to Supabase: {str(e)}")
         return False
 
 def get_report(crew_name):
-    """Get report from storage"""
-    # Try to get from Supabase first
-    if supabase_available:
-        try:
-            result = report_storage.get_report(crew_name)
-            if result:
-                return result.get("content")
-        except Exception as e:
-            logger.error(f"Error getting report from Supabase: {str(e)}")
-    
-    # Fallback to file-based storage
+    """Get a report by crew name"""
+    if not supabase_available:
+        logger.error("Supabase is not available. Cannot retrieve reports.")
+        return None
+        
     try:
-        file_path = os.path.join(REPORTS_DIR, f"{crew_name}_report.md")
-        if not os.path.exists(file_path):
+        result = report_storage.get_report(crew_name)
+        if result:
+            return result
+        else:
+            logger.warning(f"Report for crew '{crew_name}' not found in Supabase")
             return None
-            
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
     except Exception as e:
-        logger.error(f"Error getting report from file: {str(e)}")
+        logger.error(f"Error getting report from Supabase: {str(e)}")
         return None
 
 def list_reports():
-    """List all reports"""
-    # Try to list from Supabase first
-    if supabase_available:
-        try:
-            results = report_storage.list_reports()
-            if results:
-                reports = []
-                for report in results:
-                    metadata = report.get("metadata", {})
-                    reports.append(ReportInfo(
-                        id=str(report.get("id")),
-                        crew_name=report.get("crew_name"),
-                        created=report.get("created_at"),
-                        summary=metadata.get("summary")
-                    ))
-                return reports
-        except Exception as e:
-            logger.error(f"Error listing reports from Supabase: {str(e)}")
-    
-    # Fallback to file-based storage
+    """List all available reports"""
+    if not supabase_available:
+        logger.error("Supabase is not available. Cannot list reports.")
+        return []
+        
     try:
-        report_files = [f for f in os.listdir(REPORTS_DIR) if f.endswith("_report.md")]
+        results = report_storage.list_reports()
         
-        results = []
-        for filename in report_files:
-            # Extract crew name from filename (remove _report.md suffix)
-            crew_name = filename.replace("_report.md", "")
+        # Format the results
+        reports = []
+        for report in results:
+            # Extract summary from metadata if available
+            summary = ""
+            if "metadata" in report and "summary" in report["metadata"]:
+                summary = report["metadata"]["summary"]
+                
+            reports.append({
+                "id": str(report.get("id")),
+                "crew_name": report.get("crew_name"),
+                "created": report.get("created_at"),
+                "summary": summary
+            })
             
-            # Get file creation time
-            file_path = os.path.join(REPORTS_DIR, filename)
-            created = datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            results.append(ReportInfo(
-                crew_name=crew_name,
-                created=created
-            ))
-        
-        return results
+        return reports
     except Exception as e:
-        logger.error(f"Error listing reports from files: {str(e)}")
+        logger.error(f"Error listing reports from Supabase: {str(e)}")
         return []
 
 def run_crew_task(task_id: str, crew_name: str, user_goal: str):
-    """Run a crew task and save the result"""
+    """Run a research crew task in the background"""
     try:
-        # Check for required environment variables
-        if not os.getenv("OPENAI_API_KEY"):
-            task_results[task_id] = {"status": "error", "message": "OPENAI_API_KEY not configured"}
-            save_task_status(task_id, {"status": "error", "message": "OPENAI_API_KEY not configured"})
-            return
-            
-        # Initialize task result
-        task_results[task_id] = {"status": "processing"}
-        save_task_status(task_id, {"status": "processing"})
+        # Update task status
+        task_results[task_id] = {"status": "running", "message": "Task is running..."}
+        save_task_status(task_id, {"status": "running", "message": "Task is running..."})
+        
+        # Use the ResearchCrewCrew class that was already imported at the top of the file
+        logger.info(f"Using ResearchCrewCrew class that was imported at startup")
         
         # Initialize the crew
         crew = ResearchCrewCrew()
-        crew.inputs = {
-            "crew_name": crew_name,
-            "user_goal": user_goal
-        }
+        crew.inputs = {"user_goal": user_goal}
         
         # Run the crew
-        result = crew.crew().kickoff()
+        logger.info(f"Running crew for task {task_id} with goal: {user_goal}")
+        result = crew.run_crew(crew_name=crew_name)
         
-        # Get the report content
-        report_filename = f"{crew_name}_report.md"
-        report_path = os.path.join(REPORTS_DIR, report_filename)
-        
-        if os.path.exists(report_path):
-            with open(report_path, "r", encoding="utf-8") as f:
-                report_content = f.read()
-                
-            # Save report to Supabase if available
+        if result:
+            # Get the report content - use the raw output from CrewOutput
+            # The CrewOutput object doesn't have a 'report' attribute
+            # Instead, it has 'raw', 'pydantic', 'json_dict', 'tasks_output', and 'token_usage'
+            report_content = str(result)  # Use the string representation of the result
+            
+            # Save report to Supabase
             metadata = {
                 "goal": user_goal,
                 "task_id": task_id,
                 "completed_at": datetime.now().isoformat()
             }
-            save_report(crew_name, report_content, metadata)
             
-            # Update task result
-            task_results[task_id] = {"status": "success", "result": str(result)}
-            save_task_status(task_id, {"status": "success", "result": str(result)})
-            logger.info(f"Task {task_id} completed successfully")
+            if not supabase_available:
+                error_msg = "Supabase is not available. Cannot save report."
+                task_results[task_id] = {"status": "error", "message": error_msg}
+                save_task_status(task_id, {"status": "error", "message": error_msg})
+                logger.error(error_msg)
+                return
+                
+            success = save_report(crew_name, report_content, metadata)
+            
+            if success:
+                # Update task result
+                task_results[task_id] = {"status": "success", "result": str(result)}
+                save_task_status(task_id, {"status": "success", "result": str(result)})
+                logger.info(f"Task {task_id} completed successfully")
+            else:
+                # Failed to save report
+                error_msg = f"Failed to save report for crew '{crew_name}'"
+                task_results[task_id] = {"status": "error", "message": error_msg}
+                save_task_status(task_id, {"status": "error", "message": error_msg})
+                logger.error(error_msg)
         else:
-            # Report file not found
-            error_msg = f"Report file not found: {report_path}"
+            # Crew execution failed
+            error_msg = "Crew execution failed to produce a result"
             task_results[task_id] = {"status": "error", "message": error_msg}
             save_task_status(task_id, {"status": "error", "message": error_msg})
             logger.error(error_msg)
@@ -466,42 +466,56 @@ async def get_report_by_name(
     format: str = "markdown", 
     api_key: APIKey = Depends(get_api_key)
 ):
-    """Get a report by crew name"""
-    # Ensure crew_name doesn't have the _report.md suffix
+    """
+    Get a report by crew name
+    
+    - **crew_name**: Name of the crew that generated the report
+    - **format**: Format to return the report in (markdown, html, or json)
+    """
+    # Ensure crew_name doesn't have any suffix
     if crew_name.endswith("_report.md"):
         crew_name = crew_name[:-10]
     
     # Get the report content
-    content = get_report(crew_name)
+    if not supabase_available:
+        raise HTTPException(
+            status_code=503, 
+            detail="Supabase is not available. Cannot retrieve reports."
+        )
     
-    if not content:
-        raise HTTPException(status_code=404, detail=f"Report for crew '{crew_name}' not found")
+    report = report_storage.get_report(crew_name)
+    
+    if not report:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Report for crew '{crew_name}' not found"
+        )
     
     # Return the report in the requested format
-    if format.lower() == "json":
-        # If Supabase is available, get the full report with metadata
-        if supabase_available:
+    format = format.lower()
+    if format == "json":
+        # Return the full report with metadata
+        if "metadata" in report and "json_content" in report["metadata"]:
+            # If we have a parsed JSON version, return that
+            return report["metadata"]["json_content"]
+        else:
+            # Otherwise return the full report object
+            return report
+    elif format == "html":
+        # Return HTML version if available
+        if "metadata" in report and "html_content" in report["metadata"]:
+            return report["metadata"]["html_content"]
+        else:
+            # Convert markdown to HTML on the fly if not stored
             try:
-                report = report_storage.get_report(crew_name)
-                if report:
-                    return {
-                        "id": str(report.get("id")),
-                        "crew_name": crew_name,
-                        "content": content,
-                        "metadata": report.get("metadata", {}),
-                        "created_at": report.get("created_at")
-                    }
+                import markdown
+                return markdown.markdown(report["content"])
             except Exception as e:
-                logger.error(f"Error getting report from Supabase: {str(e)}")
-        
-        # Fallback to basic JSON structure
-        return {
-            "crew_name": crew_name,
-            "content": content
-        }
+                logger.error(f"Error converting markdown to HTML: {str(e)}")
+                return report["content"]
     else:
-        # Return markdown content directly
-        return content
+        # Default to markdown
+        return report["content"]
 
 @app.post("/search", tags=["RAG"])
 async def search_reports(
