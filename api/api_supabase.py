@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 import json
 import uuid
+from fastapi.middleware.cors import CORSMiddleware
 
 # Setup Python path to ensure the package can be imported
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -131,6 +132,15 @@ app = FastAPI(
 # API key security
 API_KEY = os.getenv("API_KEY")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 @app.on_event("startup")
 async def startup_event():
@@ -328,31 +338,22 @@ def run_crew_task(task_id: str, crew_name: str, user_goal: str):
         
         # Run the crew
         logger.info(f"Running crew for task {task_id} with goal: {user_goal}")
-        result = crew.run_crew(crew_name=crew_name)
+        result, enhanced_report = crew.run_crew(crew_name=crew_name)
         
         if result:
-            # Create a more detailed report content
-            report_content = f"# Research Report: {user_goal}\n\n"
-            report_content += f"## Crew: {crew_name}\n\n"
-            
-            # Add raw output
-            report_content += f"## Raw Output\n\n{str(result)}\n\n"
-            
-            # Add task outputs if available
-            if hasattr(result, 'tasks_output') and result.tasks_output:
-                report_content += f"## Task Outputs\n\n"
-                for i, task_output in enumerate(result.tasks_output):
-                    report_content += f"### Task {i+1}\n\n{str(task_output)}\n\n"
-            
-            # Add token usage if available
-            if hasattr(result, 'token_usage') and result.token_usage:
-                report_content += f"## Token Usage\n\n```\n{str(result.token_usage)}\n```\n\n"
+            # Convert the enhanced report to a string if it's not already
+            if isinstance(enhanced_report, dict):
+                import json
+                report_content = json.dumps(enhanced_report, indent=2)
+            else:
+                report_content = str(enhanced_report)
             
             # Save report to Supabase
             metadata = {
                 "goal": user_goal,
                 "task_id": task_id,
-                "completed_at": datetime.now().isoformat()
+                "completed_at": datetime.now().isoformat(),
+                "task_count": len(enhanced_report.get("tasks", [])) if isinstance(enhanced_report, dict) else 0
             }
             
             if not supabase_available:
@@ -483,38 +484,59 @@ async def list_reports(api_key: str = Depends(get_api_key)):
             detail=f"Error listing reports: {str(e)}",
         )
 
-@app.get("/reports/{report_name}", tags=["Reports"])
-async def get_report(report_name: str, api_key: str = Depends(get_api_key)):
-    """Get a specific report by name"""
-    if supabase_available:
+@app.get("/reports/{report_identifier}", tags=["Reports"])
+async def get_report(report_identifier: str, format: str = None, api_key: str = Depends(get_api_key)):
+    """Get a specific report by ID or crew name"""
+    try:
+        # Check if the identifier is a valid UUID
+        is_uuid = False
         try:
-            report = get_report_by_name(report_name)
-            if report:
-                return {"report": report}
+            uuid_obj = uuid.UUID(report_identifier)
+            is_uuid = True
+        except ValueError:
+            # Not a UUID, assume it's a crew name
+            pass
+        
+        if is_uuid:
+            # Get report by ID
+            from db.supabase import get_report_by_id
+            report = get_report_by_id(report_identifier)
+        else:
+            # Get report by crew name
+            from db.supabase import get_report_by_name
+            report_content = get_report_by_name(report_identifier)
+            
+            if report_content:
+                # Create a simplified report object
+                report = {
+                    "crew_name": report_identifier,
+                    "content": report_content
+                }
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Report '{report_name}' not found",
-                )
-        except Exception as e:
-            logger.error(f"Error getting report: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error getting report: {str(e)}",
-            )
-    else:
-        # Try to read the report file
-        reports_dir = "reports"
-        report_path = os.path.join(reports_dir, report_name)
-        if os.path.exists(report_path):
-            with open(report_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            return {"report": content}
+                report = None
+        
+        if report:
+            # Handle format parameter
+            if format == "json":
+                # Return just the content as JSON
+                return {"content": report.get("content", "")}
+            else:
+                # Return the full report object
+                return report
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Report '{report_name}' not found",
+                detail=f"Report with identifier '{report_identifier}' not found",
             )
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error getting report: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting report: {str(e)}",
+        )
 
 @app.post("/search", tags=["RAG"])
 async def search_reports(
@@ -699,6 +721,68 @@ async def get_report_details(report_name: str, api_key: str = Depends(get_api_ke
 def is_blocked(filename):
     """Check if a file is in the blocklist (always returns False now)"""
     return False  # No blocklist anymore
+
+# Add RAG search endpoints
+@app.get("/search", tags=["Search"])
+async def search_reports_api(query: str, match_count: int = 5, api_key: str = Depends(get_api_key)):
+    """Search for reports using vector similarity"""
+    try:
+        from db.rag import search_reports
+        results = search_reports(query, match_count)
+        return {"results": results}
+    except Exception as e:
+        logger.error(f"Error searching reports: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error searching reports: {str(e)}",
+        )
+
+@app.get("/search/chunks", tags=["Search"])
+async def search_report_chunks_api(query: str, match_count: int = 10, api_key: str = Depends(get_api_key)):
+    """Search for report chunks using vector similarity"""
+    try:
+        from db.rag import search_report_chunks
+        results = search_report_chunks(query, match_count)
+        return {"results": results}
+    except Exception as e:
+        logger.error(f"Error searching report chunks: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error searching report chunks: {str(e)}",
+        )
+
+@app.get("/reports/{report_id}/tasks", tags=["Reports"])
+async def get_report_tasks(report_id: str, api_key: str = Depends(get_api_key)):
+    """Get detailed task information for a specific report"""
+    try:
+        from db.supabase import get_report_by_id
+        report = get_report_by_id(report_id)
+        
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found",
+            )
+        
+        # Try to parse the content as JSON
+        try:
+            import json
+            content = json.loads(report["content"])
+            
+            # Extract tasks
+            if isinstance(content, dict) and "tasks" in content:
+                return {"tasks": content["tasks"]}
+            else:
+                return {"tasks": [], "message": "No structured task data found in report"}
+        except (json.JSONDecodeError, TypeError):
+            # Not JSON, return an error
+            return {"tasks": [], "message": "Report content is not in JSON format"}
+    except Exception as e:
+        logger.error(f"Error getting report tasks: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting report tasks: {str(e)}",
+        )
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,49 +1,43 @@
 # Research Crew Container
 
-A powerful research automation platform built with CrewAI that uses multiple specialized AI agents to perform in-depth research on any topic.
+A containerized application for running AI research crews using CrewAI, with Supabase integration for vector storage and RAG functionality.
 
 ## Overview
 
-Research Crew Container is a containerized application that orchestrates multiple AI agents to collaborate on research tasks. Each agent has a specialized role and works together to produce comprehensive research insights.
+Research Crew Container is a comprehensive platform that enables you to run AI research crews powered by CrewAI. The system features a FastAPI backend that manages crew tasks, stores reports in Supabase, and provides vector search capabilities through RAG (Retrieval Augmented Generation).
 
-The crew consists of:
-- **Research Specialist**: Conducts initial broad research on the topic
-- **GitHub Explorer**: Searches GitHub repositories for relevant code and implementations
-- **Flow Designer**: Creates a logical flow for the research process
-- **Implementation Planner**: Develops an action plan for implementing findings
-- **Prompt Generator**: Creates effective prompts for further research or applications
+The application allows you to:
+- Run research crews with specialized AI agents
+- Store detailed reports of research findings
+- Search through reports using semantic vector search
+- Access all functionality through a RESTful API
 
-## Features
+## Architecture
 
-- 🤖 **Multi-Agent Architecture**: Specialized agents with distinct roles collaborate to produce comprehensive outputs
-- 🔄 **Sequential Process**: Structured workflow where each agent builds upon the previous work
-- 🐳 **Docker Support**: Easy deployment with Docker containers
-- 🔌 **API Interface**: RESTful API for easy integration with other systems
-- 📊 **Report Generation**: Automatically compiles findings into a markdown report
-- 🧠 **Training Support**: Train your crew for specific research domains
-- 🔍 **Vector Search**: Store reports with vector embeddings for semantic search (via Supabase)
-- 💬 **RAG Capabilities**: Ask questions about your research reports and get AI-generated answers
+The system consists of the following components:
 
-## Setup Instructions
+1. **FastAPI Backend**: Handles API requests, manages tasks, and interfaces with Supabase
+2. **CrewAI Integration**: Runs specialized AI crews for research tasks
+3. **Supabase Database**: Stores reports, report chunks, and task status information
+4. **Vector Search**: Enables semantic search through reports using embeddings
 
-### Prerequisites
+## Prerequisites
 
-- Python 3.8+
-- Docker (for containerized deployment)
+- Python 3.9+
+- Docker (optional, for containerized deployment)
+- Supabase account and project
 - OpenAI API key
-- Serper API key (for web search)
-- GitHub API token (for searching GitHub)
-- Supabase account (for vector storage and RAG functionality)
+- Serper API key (for web search capabilities)
 
-### Environment Variables
+## Environment Variables
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file with the following variables:
 
 ```
 OPENAI_API_KEY=your_openai_api_key
 SERPER_API_KEY=your_serper_api_key
 GITHUB_TOKEN=your_github_token
-API_KEY=your_api_security_key
+API_KEY=your_api_
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
 ```

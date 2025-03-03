@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from crewai_tools import WebsiteSearchTool, GithubSearchTool, SerperDevTool
+from datetime import datetime
+import json
 
 # Load environment variables
 load_dotenv()
@@ -12,7 +14,9 @@ serper_api_key = os.getenv("SERPER_API_KEY")
 if not serper_api_key:
     raise ValueError("SERPER_API_KEY not found in environment variables")
 
-tool=SerperDevTool()
+tool = SerperDevTool()
+
+
 @CrewBase
 class ResearchCrewCrew:
     """ResearchCrewCrew crew"""
@@ -25,11 +29,15 @@ class ResearchCrewCrew:
     def load_tasks_config(self):
         """Load tasks configuration from YAML file"""
         import yaml
-        
+
         # Get the base directory
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        config_path = os.path.join(base_dir, "src", "research_crew_crew", "config", "tasks.yaml")
-        
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        config_path = os.path.join(
+            base_dir, "src", "research_crew_crew", "config", "tasks.yaml"
+        )
+
         # Fall back to relative path if absolute path doesn't exist
         if not os.path.exists(config_path):
             # Try alternate paths
@@ -37,17 +45,28 @@ class ResearchCrewCrew:
                 "/app/research_crew_crew/src/research_crew_crew/config/tasks.yaml",
                 "research_crew_crew/src/research_crew_crew/config/tasks.yaml",
                 "src/research_crew_crew/config/tasks.yaml",
-                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "tasks.yaml"),
-                os.path.join(base_dir, "research_crew_crew", "src", "research_crew_crew", "config", "tasks.yaml"),
+                os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "config",
+                    "tasks.yaml",
+                ),
+                os.path.join(
+                    base_dir,
+                    "research_crew_crew",
+                    "src",
+                    "research_crew_crew",
+                    "config",
+                    "tasks.yaml",
+                ),
                 os.path.join("research_crew_crew", "config", "tasks.yaml"),
                 os.path.join("config", "tasks.yaml"),
             ]
-            
+
             for path in alternate_paths:
                 if os.path.exists(path):
                     config_path = path
                     break
-        
+
         print(f"Loading tasks config from: {config_path}")
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
@@ -55,11 +74,15 @@ class ResearchCrewCrew:
     def load_agents_config(self):
         """Load agents configuration from YAML file"""
         import yaml
-        
+
         # Get the base directory
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        config_path = os.path.join(base_dir, "src", "research_crew_crew", "config", "agents.yaml")
-        
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        config_path = os.path.join(
+            base_dir, "src", "research_crew_crew", "config", "agents.yaml"
+        )
+
         # Fall back to relative path if absolute path doesn't exist
         if not os.path.exists(config_path):
             # Try alternate paths
@@ -67,17 +90,28 @@ class ResearchCrewCrew:
                 "/app/research_crew_crew/src/research_crew_crew/config/agents.yaml",
                 "research_crew_crew/src/research_crew_crew/config/agents.yaml",
                 "src/research_crew_crew/config/agents.yaml",
-                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "agents.yaml"),
-                os.path.join(base_dir, "research_crew_crew", "src", "research_crew_crew", "config", "agents.yaml"),
+                os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "config",
+                    "agents.yaml",
+                ),
+                os.path.join(
+                    base_dir,
+                    "research_crew_crew",
+                    "src",
+                    "research_crew_crew",
+                    "config",
+                    "agents.yaml",
+                ),
                 os.path.join("research_crew_crew", "config", "agents.yaml"),
                 os.path.join("config", "agents.yaml"),
             ]
-            
+
             for path in alternate_paths:
                 if os.path.exists(path):
                     config_path = path
                     break
-        
+
         print(f"Loading agents config from: {config_path}")
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
@@ -158,12 +192,12 @@ class ResearchCrewCrew:
     @task
     def design_flow_task(self) -> Task:
         config = self.tasks_config["design_flow_task"]
-        
+
         # Simple description without all the extra instructions
         description = config["description"]
         if self.inputs:
             description = description.format(**self.inputs)
-        
+
         return Task(
             description=description,
             expected_output=config["expected_output"].format(**self.inputs)
@@ -207,16 +241,21 @@ class ResearchCrewCrew:
         # Get inputs
         user_goal = self.inputs.get("user_goal", "")
         crew_name = self.inputs.get("crew_name", "research_crew")
-        
+
         # Define report directory and ensure it exists
         # Check for Docker environment first, then try relative paths
         reports_dirs = [
-            "/app/reports",                # Docker container path
-            "reports",                     # Relative to current directory
-            os.path.abspath("reports"),    # Absolute path relative to current directory
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "reports")  # From module path
+            "/app/reports",  # Docker container path
+            "reports",  # Relative to current directory
+            os.path.abspath("reports"),  # Absolute path relative to current directory
+            os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                ),
+                "reports",
+            ),  # From module path
         ]
-        
+
         reports_dir = None
         for path in reports_dirs:
             # Create directory if it doesn't exist
@@ -232,19 +271,21 @@ class ResearchCrewCrew:
                 break
             except (IOError, PermissionError):
                 continue
-        
+
         if not reports_dir:
             # If all attempts fail, use the current directory
             reports_dir = os.getcwd()
-            print(f"WARNING: Could not find or create reports directory. Using current directory: {reports_dir}")
-        
+            print(
+                f"WARNING: Could not find or create reports directory. Using current directory: {reports_dir}"
+            )
+
         # Create tasks
         research_task = self.research_topic_task()
         github_task = self.search_github_task()
         flow_task = self.design_flow_task()
         create_game_plan_task = self.create_game_plan_task()
         prompt_task = self.generate_prompt_task()
-        
+
         # Initialize crew
         crew = Crew(
             agents=[
@@ -252,31 +293,31 @@ class ResearchCrewCrew:
                 self.github_explorer(),
                 self.flow_designer(),
                 self.implementation_planner(),
-                self.prompt_generator()
+                self.prompt_generator(),
             ],
             tasks=[
                 research_task,
                 github_task,
                 flow_task,
                 create_game_plan_task,
-                prompt_task
+                prompt_task,
             ],
             process=Process.sequential,
             verbose=True,
         )
-        
+
         # Run the crew
         result = crew.kickoff(inputs=self.inputs)
-        
+
         # Write to report.md
         if self.inputs and "user_goal" in self.inputs:
             try:
                 report_path = os.path.join(reports_dir, f"{crew_name}_report.md")
-                
+
                 with open(report_path, "w", encoding="utf-8") as f:
                     f.write(f"# Topic: {self.inputs['user_goal']}\n\n")
                     f.write(f"## Crew Name: {crew_name}\n\n")
-                    
+
                     task_configs = [
                         self.tasks_config["research_topic_task"],
                         self.tasks_config["search_github_task"],
@@ -284,17 +325,17 @@ class ResearchCrewCrew:
                         self.tasks_config["create_game_plan_task"],
                         self.tasks_config["generate_prompt_task"],
                     ]
-                    
+
                     for i, task in enumerate(crew.tasks):
                         desc = (
                             task_configs[i]["description"].format(**self.inputs)
                             if self.inputs
                             else task_configs[i]["description"]
                         )
-                        
+
                         # Get agent name
                         agent_name = task.agent.__class__.__name__
-                        
+
                         # Ensure we have output
                         actual_output = "No output generated"
                         if hasattr(task, "output") and task.output:
@@ -306,25 +347,68 @@ class ResearchCrewCrew:
                                 try:
                                     actual_output = str(task.output)
                                 except:
-                                    actual_output = "Error: Could not convert output to string"
-                        
+                                    actual_output = (
+                                        "Error: Could not convert output to string"
+                                    )
+
                         # Write to file
                         f.write(f"## {desc} (Agent: {agent_name})\n\n")
                         f.write(f"**Output:**\n\n{actual_output}\n\n")
-                
+
                 print(f"Successfully wrote to {report_path}")
-                
+
             except Exception as e:
                 print(f"Error writing to report file: {e}")
-        
+
         return crew
 
     def run_crew(self, crew_name="default_crew"):
         """Run the crew with the current configuration"""
         result = self.crew().kickoff()
         
-        # Save the report to a file
-        # Check for Docker environment first, then try relative paths
+        # Create a detailed report with all task outputs
+        report_content = {
+            "metadata": {
+                "crew_name": crew_name,
+                "user_goal": self.inputs.get("user_goal", ""),
+                "timestamp": datetime.now().isoformat(),
+            },
+            "summary": str(result),  # Overall result as string
+            "tasks": []
+        }
+        
+        # Capture all task outputs if available
+        if hasattr(result, 'tasks_output') and result.tasks_output:
+            for i, task_output in enumerate(result.tasks_output):
+                task_info = {
+                    "task_index": i,
+                    "output": str(task_output)
+                }
+                
+                # Try to get more details about the task
+                if hasattr(task_output, 'task') and task_output.task:
+                    task = task_output.task
+                    task_info["description"] = getattr(task, "description", "Unknown task")
+                    
+                    # Get agent information if available
+                    if hasattr(task, "agent") and task.agent:
+                        agent = task.agent
+                        task_info["agent"] = {
+                            "name": agent.__class__.__name__,
+                            "role": getattr(agent, "role", "Unknown role"),
+                            "goal": getattr(agent, "goal", "Unknown goal")
+                        }
+                
+                report_content["tasks"].append(task_info)
+        
+        # Also save token usage if available
+        if hasattr(result, 'token_usage') and result.token_usage:
+            report_content["token_usage"] = result.token_usage
+        
+        # Convert to JSON for storage
+        json_report = json.dumps(report_content, indent=2)
+        
+        # Save the report to a file (for backward compatibility)
         reports_dirs = [
             "/app/reports",                # Docker container path
             "reports",                     # Relative to current directory
@@ -353,42 +437,34 @@ class ResearchCrewCrew:
             reports_dir = os.getcwd()
             print(f"WARNING: Could not find or create reports directory. Using current directory: {reports_dir}")
         
-        report_path = os.path.join(reports_dir, f"{crew_name}_report.md")
+        # Save JSON report
+        json_report_path = os.path.join(reports_dir, f"{crew_name}_report.json")
+        with open(json_report_path, "w", encoding="utf-8") as f:
+            f.write(json_report)
         
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(f"# Topic: {self.inputs['user_goal']}\n\n")
-            f.write(f"## Crew Name: {crew_name}\n\n")
+        # Also save a human-readable markdown report
+        md_report_path = os.path.join(reports_dir, f"{crew_name}_report.md")
+        with open(md_report_path, "w", encoding="utf-8") as f:
+            f.write(f"# Research Report: {self.inputs.get('user_goal', '')}\n\n")
+            f.write(f"## Crew: {crew_name}\n\n")
             
-            task_configs = [
-                self.tasks_config["research_topic_task"],
-                self.tasks_config["search_github_task"],
-                self.tasks_config["design_flow_task"],
-                self.tasks_config["create_game_plan_task"],
-                self.tasks_config["generate_prompt_task"],
-            ]
-            
-            # Access tasks_output instead of crew.tasks
-            if hasattr(result, 'tasks_output') and result.tasks_output:
-                for i, task_output in enumerate(result.tasks_output):
-                    if i < len(task_configs):
-                        desc = (
-                            task_configs[i]["description"].format(**self.inputs)
-                            if self.inputs
-                            else task_configs[i]["description"]
-                        )
-                        
-                        # Get task information
-                        task_info = f"Task {i+1}"
-                        
-                        # Get output
-                        actual_output = str(task_output)
-                        
-                        # Write to file
-                        f.write(f"## {desc} ({task_info})\n\n")
-                        f.write(f"**Output:**\n\n{actual_output}\n\n")
+            # Add task outputs
+            if report_content["tasks"]:
+                for task_info in report_content["tasks"]:
+                    task_desc = task_info.get("description", f"Task {task_info['task_index']}")
+                    agent_info = ""
+                    if "agent" in task_info:
+                        agent_info = f" (Agent: {task_info['agent'].get('name', 'Unknown')} - {task_info['agent'].get('role', 'Unknown')})"
+                    
+                    f.write(f"### {task_desc}{agent_info}\n\n")
+                    f.write(f"**Output:**\n\n{task_info['output']}\n\n")
             else:
-                # If tasks_output is not available, just write the raw output
-                f.write(f"## Raw Output\n\n")
-                f.write(f"{str(result)}\n\n")
+                # If no task details, just write the summary
+                f.write(f"## Summary\n\n{report_content['summary']}\n\n")
+            
+            # Add token usage if available
+            if "token_usage" in report_content:
+                f.write(f"## Token Usage\n\n```\n{json.dumps(report_content['token_usage'], indent=2)}\n```\n\n")
         
-        return result
+        # Return both the CrewOutput object and our enhanced report content
+        return result, report_content
