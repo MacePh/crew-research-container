@@ -367,29 +367,28 @@ class ResearchCrewCrew:
                 self.tasks_config["generate_prompt_task"],
             ]
             
-            for i, task in enumerate(result.crew.tasks):
-                desc = (
-                    task_configs[i]["description"].format(**self.inputs)
-                    if self.inputs
-                    else task_configs[i]["description"]
-                )
-                
-                # Get agent name
-                agent_name = task.agent.__class__.__name__
-                
-                # Ensure we have output
-                actual_output = "No output generated"
-                if hasattr(task, "output") and task.output:
-                    # Convert TaskOutput to string if needed
-                    if hasattr(task.output, "__str__"):
-                        actual_output = str(task.output)
-                    else:
-                        # If it's already a string or has no __str__ method
-                        try:
-                            actual_output = str(task.output)
-                        except:
-                            actual_output = "Error: Could not convert output to string"
-                
-                # Write to file
-                f.write(f"## {desc} (Agent: {agent_name})\n\n")
-                f.write(f"**Output:**\n\n{actual_output}\n\n")
+            # Access tasks_output instead of crew.tasks
+            if hasattr(result, 'tasks_output') and result.tasks_output:
+                for i, task_output in enumerate(result.tasks_output):
+                    if i < len(task_configs):
+                        desc = (
+                            task_configs[i]["description"].format(**self.inputs)
+                            if self.inputs
+                            else task_configs[i]["description"]
+                        )
+                        
+                        # Get task information
+                        task_info = f"Task {i+1}"
+                        
+                        # Get output
+                        actual_output = str(task_output)
+                        
+                        # Write to file
+                        f.write(f"## {desc} ({task_info})\n\n")
+                        f.write(f"**Output:**\n\n{actual_output}\n\n")
+            else:
+                # If tasks_output is not available, just write the raw output
+                f.write(f"## Raw Output\n\n")
+                f.write(f"{str(result)}\n\n")
+        
+        return result

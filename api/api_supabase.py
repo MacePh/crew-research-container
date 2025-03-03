@@ -145,8 +145,18 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
         # If no API key is set in env vars, don't enforce authentication
         logger.warning("No API_KEY set in environment variables. Running in insecure mode.")
         return None
+    
+    # Log the received API key (first 10 chars) for debugging
+    received_key_preview = api_key_header[:10] + "..." if api_key_header else "None"
+    expected_key_preview = API_KEY[:10] + "..." if API_KEY else "None"
+    logger.debug(f"Received API key: {received_key_preview}, Expected: {expected_key_preview}")
+    
     if api_key_header == API_KEY:
         return api_key_header
+    
+    # Log the full keys if they don't match (be careful with this in production)
+    logger.warning(f"API key mismatch. Received: {api_key_header}, Expected: {API_KEY}")
+    
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid API Key",
@@ -184,12 +194,6 @@ class QuestionResponse(BaseModel):
 
 # In-memory storage for task results (in production, use a proper database)
 task_results = {}
-
-# Store problematic task IDs
-BLOCKED_TASK_IDS = [
-    "1e471e2b-948c-4695-be24-c63a2e84260d",
-    # Add other known problematic IDs here
-]
 
 # Directory for storing task data (fallback for when Supabase is not available)
 TASKS_DIR = os.path.join(os.path.dirname(__file__), "..", "tasks")
@@ -327,10 +331,22 @@ def run_crew_task(task_id: str, crew_name: str, user_goal: str):
         result = crew.run_crew(crew_name=crew_name)
         
         if result:
-            # Get the report content - use the raw output from CrewOutput
-            # The CrewOutput object doesn't have a 'report' attribute
-            # Instead, it has 'raw', 'pydantic', 'json_dict', 'tasks_output', and 'token_usage'
-            report_content = str(result)  # Use the string representation of the result
+            # Create a more detailed report content
+            report_content = f"# Research Report: {user_goal}\n\n"
+            report_content += f"## Crew: {crew_name}\n\n"
+            
+            # Add raw output
+            report_content += f"## Raw Output\n\n{str(result)}\n\n"
+            
+            # Add task outputs if available
+            if hasattr(result, 'tasks_output') and result.tasks_output:
+                report_content += f"## Task Outputs\n\n"
+                for i, task_output in enumerate(result.tasks_output):
+                    report_content += f"### Task {i+1}\n\n{str(task_output)}\n\n"
+            
+            # Add token usage if available
+            if hasattr(result, 'token_usage') and result.token_usage:
+                report_content += f"## Token Usage\n\n```\n{str(result.token_usage)}\n```\n\n"
             
             # Save report to Supabase
             metadata = {
@@ -418,14 +434,6 @@ async def get_task_status(
     api_key: APIKey = Depends(get_api_key)
 ):
     """Get the status of a running task"""
-    # Check if task is blocked
-    if task_id in BLOCKED_TASK_IDS:
-        return {
-            "status": "blocked",
-            "result": "",
-            "message": "This task ID is blocked due to known issues"
-        }
-    
     # First check in-memory cache
     result = task_results.get(task_id)
     
@@ -450,72 +458,63 @@ async def get_task_status(
         "task_id": task_id
     }
 
-@app.get("/reports", response_model=List[ReportInfo], tags=["Reports"])
-async def list_all_reports(api_key: APIKey = Depends(get_api_key)):
+@app.get("/reports", tags=["Reports"])
+@app.get("/reports/", tags=["Reports"])
+async def list_reports(api_key: str = Depends(get_api_key)):
     """List all available reports"""
     try:
-        reports = list_reports()
-        return reports
+        if supabase_available:
+            # Import the function if it's not already imported
+            from db.supabase import get_all_reports
+            reports = get_all_reports()
+            return {"reports": reports}
+        else:
+            # Use file-based storage
+            reports_dir = "reports"
+            if os.path.exists(reports_dir):
+                report_files = [f for f in os.listdir(reports_dir) if f.endswith(".md") or f.endswith(".html")]
+                return {"reports": [{"crew_name": f.replace("_report.md", "")} for f in report_files]}
+            else:
+                return {"reports": []}
     except Exception as e:
         logger.error(f"Error listing reports: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error listing reports: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error listing reports: {str(e)}",
+        )
 
-@app.get("/reports/{crew_name}", response_model=Union[str, Dict[str, Any]], tags=["Reports"])
-async def get_report_by_name(
-    crew_name: str, 
-    format: str = "markdown", 
-    api_key: APIKey = Depends(get_api_key)
-):
-    """
-    Get a report by crew name
-    
-    - **crew_name**: Name of the crew that generated the report
-    - **format**: Format to return the report in (markdown, html, or json)
-    """
-    # Ensure crew_name doesn't have any suffix
-    if crew_name.endswith("_report.md"):
-        crew_name = crew_name[:-10]
-    
-    # Get the report content
-    if not supabase_available:
-        raise HTTPException(
-            status_code=503, 
-            detail="Supabase is not available. Cannot retrieve reports."
-        )
-    
-    report = report_storage.get_report(crew_name)
-    
-    if not report:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Report for crew '{crew_name}' not found"
-        )
-    
-    # Return the report in the requested format
-    format = format.lower()
-    if format == "json":
-        # Return the full report with metadata
-        if "metadata" in report and "json_content" in report["metadata"]:
-            # If we have a parsed JSON version, return that
-            return report["metadata"]["json_content"]
-        else:
-            # Otherwise return the full report object
-            return report
-    elif format == "html":
-        # Return HTML version if available
-        if "metadata" in report and "html_content" in report["metadata"]:
-            return report["metadata"]["html_content"]
-        else:
-            # Convert markdown to HTML on the fly if not stored
-            try:
-                import markdown
-                return markdown.markdown(report["content"])
-            except Exception as e:
-                logger.error(f"Error converting markdown to HTML: {str(e)}")
-                return report["content"]
+@app.get("/reports/{report_name}", tags=["Reports"])
+async def get_report(report_name: str, api_key: str = Depends(get_api_key)):
+    """Get a specific report by name"""
+    if supabase_available:
+        try:
+            report = get_report_by_name(report_name)
+            if report:
+                return {"report": report}
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Report '{report_name}' not found",
+                )
+        except Exception as e:
+            logger.error(f"Error getting report: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error getting report: {str(e)}",
+            )
     else:
-        # Default to markdown
-        return report["content"]
+        # Try to read the report file
+        reports_dir = "reports"
+        report_path = os.path.join(reports_dir, report_name)
+        if os.path.exists(report_path):
+            with open(report_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return {"report": content}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_name}' not found",
+            )
 
 @app.post("/search", tags=["RAG"])
 async def search_reports(
@@ -626,11 +625,6 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-@app.get("/task-blocklist", tags=["System"])
-async def get_task_blocklist(api_key: APIKey = Depends(get_api_key)):
-    """Get a list of known problematic task IDs that should not be polled"""
-    return {"blocked_task_ids": BLOCKED_TASK_IDS}
-
 @app.get("/cleanup-tasks", tags=["Maintenance"])
 async def cleanup_old_tasks(days: int = 7, api_key: APIKey = Depends(get_api_key)):
     """Remove task files older than the specified number of days"""
@@ -655,6 +649,56 @@ async def cleanup_old_tasks(days: int = 7, api_key: APIKey = Depends(get_api_key
     except Exception as e:
         logger.error(f"Error cleaning up tasks: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error cleaning up tasks: {str(e)}")
+
+@app.get("/reports/{report_name}/details", tags=["Reports"])
+async def get_report_details(report_name: str, api_key: str = Depends(get_api_key)):
+    """Get detailed information about a specific report"""
+    if supabase_available:
+        try:
+            # Get the report from Supabase
+            report = get_report_by_name(report_name)
+            if not report:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Report '{report_name}' not found",
+                )
+                
+            # Get the metadata
+            metadata = get_report_metadata(report_name)
+            
+            # Return all information
+            return {
+                "report_name": report_name,
+                "content": report,
+                "metadata": metadata
+            }
+        except Exception as e:
+            logger.error(f"Error getting report details: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error getting report details: {str(e)}",
+            )
+    else:
+        # Try to read the report file
+        reports_dir = "reports"
+        report_path = os.path.join(reports_dir, report_name)
+        if os.path.exists(report_path):
+            with open(report_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return {
+                "report_name": report_name,
+                "content": content,
+                "metadata": {"source": "file"}
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_name}' not found",
+            )
+
+def is_blocked(filename):
+    """Check if a file is in the blocklist (always returns False now)"""
+    return False  # No blocklist anymore
 
 if __name__ == "__main__":
     import uvicorn
