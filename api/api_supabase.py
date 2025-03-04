@@ -216,6 +216,13 @@ def save_task_status(task_id, status_data):
     if "created_at" not in status_data:
         status_data["created_at"] = status_data["updated_at"]
     
+    # Convert any non-serializable objects to dicts
+    if "usage_metrics" in status_data:
+        if hasattr(status_data["usage_metrics"], "__dict__"):
+            status_data["usage_metrics"] = status_data["usage_metrics"].__dict__
+        elif hasattr(status_data["usage_metrics"], "model_dump"):
+            status_data["usage_metrics"] = status_data["usage_metrics"].model_dump()
+    
     # Try to save to Supabase first
     if supabase_available:
         try:

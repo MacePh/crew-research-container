@@ -53,4 +53,13 @@ except ImportError:
 api_module = "api.api_supabase:app"  # Use the Supabase-enabled API
 host = "0.0.0.0"
 port = 8000
-reload = True 
+reload = True
+
+# Start the FastAPI server using uvicorn
+if __name__ == "__main__":
+    import uvicorn
+    try:
+        print(f"Starting FastAPI server with module: {api_module}")
+        uvicorn.run(api_module, host=host, port=port, reload=reload)
+    except Exception as e:
+        print(f"Error starting FastAPI server: {e}") 
